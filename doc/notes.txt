@@ -1,0 +1,170 @@
+Notes regarding memory mapping
+==============================
+build/app/cust.ld (modified by build.sh from
+                   gprs_c_sdk/platform/compilation.cust.ld)
+    - Flash origin at 0x88000000
+    - User application at 0x88000000 + 0x00240000
+    - RAM starts at 0x82000000 + 0x00300000
+
+void boot_Sector(UINT32 param1) is apparently the entry point,
+but bcpu_main does not have any functions calling it, either.
+
+Name              Addr     Off    Size   ES Flg Lk Inf Al
+.spi_reg_debug    a2000000 22d000 000980 00  WA  0   0  4
+.boot_code        88010000 01f000 0010b0 00  AX  0   0  4
+.bcpu_rotext      88011100 020100 000510 00  AX  0   0  4
+.bcpu_rodata      88011610 020610 000010 00   A  0   0  4
+.bcpu_rom_text    a1e80000 007000 0137b0 00  AX  0   0 16
+.bcpu_rom_rodata  81e937b0 01a7b0 0046f0 00   A  0   0  4
+.bbsram           81980000 001000 001e00 00  WA  0   0  4
+.bbsramu          a1981e00 22ce00 001bf0 00  WA  0   0  4
+.bbsram_globals   81986640 000640 0001b9 00  WA  0   0  4
+.mailbox          a1b00580 22c580 000280 00  WA  0   0  4
+.bcpu_rom_version 81e97ff8 01eff8 000004 00   A  0   0  4
+.bcpu_rom.crc     81e97ffc 01effc 000004 00  WA  0   0  1
+.bbsram_patch_tex 81986800 020800 001070 00  AX  0   0  4
+.bbsram_patch_dat 81987870 021870 000030 00  WA  0   0  4
+.bbsram_patch_ucd a19878a0 0218a0 000320 00  WA  0   0  4
+.bbsram_patch_ucb a1987bc0 22cbc0 000100 00  WA  0   0  4
+.bcpu_sramtext    81c00680 022680 001450 00  AX  0   0  4
+.bcpu_sramucdata  a1c01ad0 023ad0 000040 00  WA  0   0  4
+.bcpu_bss         82000a00 01fa00 000010 00  WA  0   0  4
+.bcpu_flash_end   88013e70 023e70 000010 00  WA  0   0  1
+.main_entry_secti 88013e80 023e80 000460 00  AX  0   0  4
+.internal_rom     81e00000 001000 0051f0 00 WAX  0   0 128
+.rom_entries_unca a1c000a0 22d0a0 0000f4 00  WA  0   0  4
+.rom_entries_cach 81c00194 001194 000054 00  WA  0   0  4
+.boot_rom_version 81e05ff8 006ff8 000004 00   A  0   0  4
+.internal_rom.crc 81e05ffc 006ffc 000004 00  WA  0   0  1
+.boot_sector_stru 81c00220 001194 00001c 00  WA  0   0  4
+.boot_sector_relo 81c00274 001194 000004 00  WA  0   0  4
+.boot_sector_stru 81c00278 001194 000004 00  WA  0   0  4
+.fixptr           81c0027c 001194 000004 00  WA  0   0  4
+.irqsram          81c00280 025280 0002e0 00 WAX  0   0 16
+
+0xa1xx_xxxx and 0x81xx_xxxx could be mirrors. The MIPS R3000 allows using KUSEG
+(0x0000_0000) and KSEG0/1 (0x8000_0000 and 0xA000_0000, respectively) with
+different access permissions (user or kernel modes).
+
+So there are apparently flash memory sections on 0xa1, 0x81 and 0x88. If
+KUSEG/KSEG were used, then 0xa1 and 0x81 are essentially kernel-mode mirrors of
+each other. However, I can't tell where 0x88 sections are actually pointing.
+According to the documentation, the A9 features 4 MiB flash memory, and
+0x8800_0000 - 0x8100_0000 > 4 MiB, so could they be two different flash chips
+mapped at different addresses?
+
+rsoft: kuseg is the user segment, while the kernel segments are only accessible
+in kernel mode and differ in caching and translation
+
+Compiling and linking a simple application returns undefined references to:
+    __stack
+    _fini
+    _init
+    hardware_init_hook
+    get_mem_info
+    hardware_hazard_hook
+    hardware_exit_hook
+    software_init_hook
+
+RAM executable bootloader?
+=========================
+coolwatcher seems to be loading a RAM-based bootloader before flashing user
+firmware. This bootloader depends on the SoC model and they are located at
+csdtk42-linux/cooltools/chipgen/Modem2G/toolpool/plugins/fastpf/flash_programmers .
+-> This sounds like a very sensible idea considering the whole flash might
+be erased when downloading new software. That might be reason why a full
+firmare (namely _B.lod) flashing is required but the .lod only containing
+user firmware can be flashed afterwards to save time.
+
+coolhost UART configuration
+===========================
+coolhost can only communicate successfully with the A9 using the following
+UART configuration:
+    - Baud rate: 921600
+    - Data bits: 8
+    - Stop bits: 1
+    - Parity: None
+    - Flow control: None
+Any other configuration simply fails, despite the A9 AT firmware being known for
+baud rate auto detection.
+
+Unusual compilation flags
+=======================
+By inspecting the steps performed by gprs_c_sdk's Makefiles (remember to remove
+the -s from them), it definitely uses some peculiar compilation settings:
+
+- First, mips-rda-elf-gcc is not used, but mips-elf-gcc.
+- -ffixed-t4 -ffixed-t5 -ffixed-t6 -ffixed-t7 -ffixed-s2 -ffixed-s3 -ffixed-s4
+  -ffixed-s5 -ffixed-s6 -ffixed-s7 -ffixed-fp. According to
+  https://stackoverflow.com/questions/35809832/is-the-flag-ffixed-reg-always-bugged-in-gcc ,
+  the '-ffixed-reg' flag is used to "treat the register named reg as a fixed
+  register; generated code should never refer to it (except perhaps as a stack
+  pointer)". This means CPU registers t4-t7, s2-27 and fp are reserved for some
+  reason.
+  According to https://cgi.cse.unsw.edu.au/~cs3231/doc/mips.php , registers t0-t7
+  are used as general-purpose temporary registers, s0-s7 as general-purpose
+  saved registers and fp is used for floating-point arithmetic (the latter being
+  mentioned on https://vhouten.home.xs4all.nl/mipsel/r3000-isa.html).
+  I guess 'fp' is omitted as the A9 might lack an FPU (like the PSX), but I can't
+  tell why the other registers must not be used by the compiler.
+- Other funky compilation flags are:
+    -minterlink-mips16
+    -march=xcpu -mtune=xcpu <- Not so rare tbh, even x86 uses them
+    -mmemcpy
+    -mmips-tfile
+    -nostartfiles
+    -EL -DEL <- probably used to indicate little-endian?
+    -mexplicit-relocs
+    -fweb
+    -frename-registers
+    -mmemcpy
+    -mmips-tfile
+    -pipe
+    -fwide-exec-charset=UTF-16LE -fshort-wchar <- probably used for Chinese encoding
+- As already shown on gprs_c_sdk/libs/utils/src, the engineers working on this
+  might hated or simply ignored any reasonable implementation of the C standard
+  library e.g.: newlib, instead writing their own wrappers around the unknown,
+  proprietary real-time operating running on the A9, hence the -nostdlib
+  -nostdinc -nodefaultlibs compilation flags.
+
+Link process
+===============
+The link process has been split into two steps:
+    - (mips-elf-cpp) Generate a user-specific linker script namely cust.ld by
+    reading gprs_c_sdk/build/gpio/cust.ld and applying the following definitions
+    on it:
+        -DUSER_ROM_BASE=0xFFFFFFFF88000000+0x00240000
+        -DUSER_ROM_SIZE=0x00100000
+        -DUSER_RAM_BASE=0xFFFFFFFF82000000+0x00300000
+        -DUSER_RAM_SIZE=0x00100000
+        -DDUSE_BINUTILS_2_19=1
+    This is accomplished by using the -C and -P flags. -undef is also indicated,
+    but I do not know what it is used for. And, IMHO, I would have used
+    a set of predefined linker scripts with defined memory boundaries rather
+    than throwing in a bunch of macros.
+    - (mips-elf-ld) Perform the usual link operation. As expected when writing
+    build scripts with bash+GNU Make, --start-group/--end-group are required
+    since it is very hard to solve circular dependencies between libraries
+    by hand.
+    - An interesting note is the use of the -just-symbols flag, which allows
+    mapping unresolved symbols by using another ELF as reference. In this case,
+    gprs_c_sdk/platform/chip/rom/8955/lib/mem_bridge_rom_CHIP.elf is used.
+    As opposed to the SW_V2129_csdk.elf file pair, mem_bridge_rom_CHIP.elf
+    has been stripped from all debugging symbols, so Ghidra has a tougher time
+    trying to guess what's going on there. It's considerably smaller than the
+    latter (20980 bytes according to mips-elf-size), but I do not think this
+    is actually running on the chip since it is not burned by coolwatcher or
+    referenced by any other that I am aware of.
+        - Ghidra shows a bunch (< 100) of functions, mainly related to USB,
+        Ispi (regardless what that means) and UART.
+
+LOD combination
+===============
+csdtk and gprs_c_sdk were designed around a set of proprietary tools, file
+formats and communication protocols.
+    - coolwatcher and coolhost would be roughly equivalent to OpenOCD or
+    avrdude.
+    - .lod files are very similar to .hex files, although poorly designed.
+    - HST (a plain old UART despite its fancy name) is used instead of JTAG/SWD.
+    I am unsure of how source-level debugging is accomplished, despite coolwatcher
+    having an interface to mips-elf-insight.
