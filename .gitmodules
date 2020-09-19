@@ -1,0 +1,6 @@
+[submodule "hw_html/xmlParser"]
+	path = hw_html/xmlParser
+	url = https://github.com/lookup69/xmlParser
+[submodule "hw_html/CTML"]
+	path = hw_html/CTML
+	url = https://github.com/tinfoilboy/CTML
