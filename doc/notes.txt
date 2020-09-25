@@ -1,4 +1,73 @@
-Notes regarding memory mapping
+General notes
+=============
+The A9 is based on a system-on-a-chip namely RDA8955, made by RDA Technologies.
+It is a very powerful and versatile GSM/GPRS-capable microcontroller that
+was definitely conceived for mobile use, and probably used by various mobile
+phone manufacturers during the 2000's (personal opinion).
+
+Ai-Thinker sells a variant with GPS called the A9G. According to
+https://blog.zakkemble.net/remote-mail-notifier-and-gps-tracker , the A9G uses
+a GK9501 GPS receiver.
+
+Ai-Thinker distributes two packages for the A9:
+    - GPRS_C_SDK (https://github.com/ai-thinker-open/gprs_c_sdk): contains
+    .sh/.bat scripts to build user projects and demos. It also includes source
+    code for some libraries (cjson, vlgl and aliyun, among others) and header
+    files for interfacing their closed-source firmware (more on this later).
+
+    - CSDTK (official link dead, mirror https://github.com/pulkin/csdtk42-linux):
+    contains the binaries of modified versions of the GNU toolchain (gcc and
+    binutils), a bunch of tools used to communicate with the microcontrollers
+    namely "cooltools" and lots of configuration files, some of without clear
+    purpose.
+
+Ai-Thinker seems to have stopped development of their repositories since 2018,
+where the latest version was released, except from some minor commits. So this
+project aims to keep maintaining the A9/A9G by creating a free (as in freedom)
+version of these repositories developed by the community.
+
+On the other hand, since Ai-Thinker are only distributing binaries of the GNU
+toolchain, this means they are violating the GNU General Public License v3 by
+not distribuing the source code. This has already been reported to Ai-Thinker on
+Github (https://github.com/Ai-Thinker-Open/GPRS_C_SDK/issues/431) and e-mail
+both to Ai-Thinker themselves and the Free Software Foundation, with no response
+so far.
+
+Two versions of the toolchain are distributed: mips-rda-elf and mips-elf. The
+former relies on versions of gcc and binutils released in 2017 and the latter
+from 2014. It is currently unclear the differences between both toolchains,
+although GPRS_C_SDK uses mips-elf to build a project instead of mips-rda-elf.
+
+Despite Ai-Thinker distributing so many resources, the real deal on the A9 is a
+debug/release pair of closed-source firmware blobs that contain the GSM/GPRS
+and GPS stacks, the bootloader, the C standard library implementation and the
+implementation of all the libraries that are provided to the user. The binaries
+are located at GPRS_C_SDK/platform/csdk/[debug/release]. According to
+mips-elf-size, the .text section of the debug version of SW_V2129_csdk.elf is
+1969176 bytes (around 1.88 MiB), so there is a lot going on in there.
+
+Fortunately for us, the GPRS_C_SDK repository and also the blobs are under the
+MIT license, which gives us freedom to reverse-engineer them. What's more, the
+original authors compiled these .elf files with full debugging information, so
+they can be de-compiled using a reverse-engineering tool such as NSA's Ghidra
+while keeping the original symbol names.
+
+Using this approach, we see open-source libraries such as mbedtls and lwip have
+been used. A major drawback of the closed-source binary is the fact all unused
+code cannot be optimized away by the linker, so if the A9 contains 4 MiB of
+flash memory that leaves the user with 2.12 MiB. It could be worse, but it could
+also be better.
+
+Ghidra does a decent job at de-compiling the binaries, but sometimes it does
+not figure out the names of local variables and shows many "Could not recover
+jumptable at 0x88010a48. Too many branches" warning messages at the end of a
+function. Also, while Ghidra allows exporting to a C source file, it apparently
+only allows exporting as a *single* C source file, which might be cumbersome
+for such a big project (> 14 MiB, > 530,000 lines). So it is a good idea to
+compare the de-compiled code against the available documentation (more on this
+later).
+
+Memory mapping
 ==============================
 build/app/cust.ld (modified by build.sh from
                    gprs_c_sdk/platform/compilation.cust.ld)
@@ -53,8 +122,8 @@ According to the documentation, the A9 features 4 MiB flash memory, and
 0x8800_0000 - 0x8100_0000 > 4 MiB, so could they be two different flash chips
 mapped at different addresses?
 
-rsoft: kuseg is the user segment, while the kernel segments are only accessible
-in kernel mode and differ in caching and translation
+"rsoft: kuseg is the user segment, while the kernel segments are only accessible
+in kernel mode and differ in caching and translation"
 
 Compiling and linking a simple application returns undefined references to:
     __stack
@@ -162,12 +231,13 @@ LOD combination
 csdtk and gprs_c_sdk were designed around a set of proprietary tools, file
 formats and communication protocols.
     - coolwatcher and coolhost would be roughly equivalent to OpenOCD or
-    avrdude.
-    - .lod files are very similar to .hex files, although poorly designed.
+    avrdude, but GUI-based.
+    - .lod files are very similar to .hex files, although IMHO poorly designed.
     More on this later.
     - HST (a seemingly plain old UART despite its fancy name) is used instead
-    of JTAG/SWD.  I am unsure of how source-level debugging is accomplished,
-    despite coolwatcher having an interface to mips-elf-insight.
+    of JTAG, SWD or any other kind of debug interface. However, coolwatcher
+    features mips-elf-insight, so it might be using the HST for source-level
+    debugging.
 
 The .lod file format includes the following information:
     - Optional fields prefixed by '#' (maybe comments?). This is an example of
@@ -231,3 +301,72 @@ two parameters are specified:
     - Null-terminated string "L1_SYNCH_NOT_FOUND"
     - 32-bit integer (0x%x) with value 0x0000006a
     - Unknown 32-bit integer with value 00 0a 80 00
+
+Hardware registers
+==================
+The csdtk package includes a great deal of information about low-level
+registers in XML format (sometimes .xmd extension is used) which could be
+easily parsed and laid out in a more readable format e.g.: HTML. A WIP
+application is being developed for that very same purpose under the hw_html
+directory.
+
+These files are located on csdtk/cooltools/chipgen/Modem2G/toolpool/map/8809,
+where 8955_hard.xml describes low-level registers and 8955_soft_pkg.xmd
+describes software structures and enums. Even C code is embedded into these
+XML files, usually under the <cjoker> tag, and containing macro definitions and
+function declarations. Moreover, this documentation even also includes comments
+on how these low-level registers work.
+
+coolwatcher apparently uses this information for its "Register Viewer" (which
+can be accessed from the "Tools" menu), showing the layout of all low-level
+registers, as well as their addresses and real-time values.
+
+According to this, there is a rather lengthy list of peripherals featured on
+the A9/RDA8955:
+
+- ABB
+- AIF
+- BB
+- BCPU
+- CALENDAR
+- CAMERA
+- CHOLK
+- CIPHER
+- CORDIC
+- CS0/CS1
+- DEBUG_HOST/DEBUG_UART
+- DMA
+- EXCOR
+- FMD
+- GOUDA
+- GPIO
+- I2C
+- IOMUX
+- ITLV
+- KEYPAD
+- PAGE_SPY
+- PMU
+- PWM
+- RF
+- SCI
+- SDMMC
+- SEG_SCAN
+- SPI1/2/3
+- SPI_FLASH
+- TCU
+- TIMER
+- UART
+- USBC
+- VITAC
+
+It is currently unknown what some of these peripherals are used for, and some
+of them are not even mentioned on the official specifications e.g.: CAMERA.
+On the other hand, the same website states 2 SPI interfaces are available,
+although as shown above the register viewer listed SPI1/2/3.
+
+Dual CPU?
+=========
+BCPU and XCPU are mentioned in various places, which suggests a dual-CPU design.
+However, https://ai-thinker-open.github.io/GPRS_C_SDK_DOC/en/hardware/a9.html
+only mentions "RDA 32 bit RISC core, frequency up to 312MHz, with 4k instruction
+cache, 4k data cache", so it is unknown whether two CPUs are actually present.
