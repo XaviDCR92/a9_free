@@ -1,5 +1,6 @@
 #include "html.hpp"
 #include "mcureg.hpp"
+#include "bit.hpp"
 #include <xmlParser.h>
 #include <string>
 #include <stdio.h>
@@ -58,11 +59,13 @@ int main(const int argc, const char *const argv[])
             {
                 const XMLNode reg = module.getChildNode("reg", &n);
                 const char *const name = reg.getAttribute("name");
+                const char *const access = reg.getAttribute("protect");
 
-                if (!name)
+                if (!name || !access)
                     continue;
 
                 printf("\treg %s\n", name);
+                mcureg mcureg(name, access);
 
                 int n = 0;
 
@@ -70,41 +73,17 @@ int main(const int argc, const char *const argv[])
                 {
                     const XMLNode bits = reg.getChildNode("bits", &n);
                     const char *const name = bits.getAttribute("name");
-                    mcureg::access access = mcureg::UNDEF;
-                    const char *const access_cs = bits.getAttribute("access");
+                    const char *const access = bits.getAttribute("access");
+                    const char *const pos = bits.getAttribute("pos");
+                    const char *const rst = bits.getAttribute("rst");
 
-                    if (!access_cs)
+                    printf("\t\tbit=%s, access=%s, pos=%s, rst=%s\n",
+                        name, access, pos, rst);
+
+                    if (!name || !access || !pos || !rst)
                         continue;
 
-                    const std::string access_s = access_cs;
-
-                    if (access_s == "rsv")
-                        access = mcureg::RSV;
-                    else if (access_s == "w1c")
-                        access = mcureg::W1C;
-                    else if (access_s == "w1s")
-                        access = mcureg::W1S;
-                    else if (access_s == "rc")
-                        access = mcureg::RC;
-                    else if (access_s == "rs")
-                        access = mcureg::RS;
-                    else if (access_s == "rw")
-                        access = mcureg::RW;
-                    else if (access_s == "c")
-                        access = mcureg::C;
-                    else if (access_s == "s")
-                        access = mcureg::S;
-                    else if (access_s == "r")
-                        access = mcureg::R;
-                    else if (access_s == "w")
-                        access = mcureg::W;
-
-                    if (access == mcureg::UNDEF)
-                        fprintf(stderr, "%s: undefined access\n", name);
-                    else
-                    {
-                        printf("\t\t%s, access %s\n", name, access_cs);
-                    }
+                    mcureg.add(bit(name, access, pos));
                 }
             }
         }

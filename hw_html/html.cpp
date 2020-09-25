@@ -1,4 +1,5 @@
-#include "html.hpp"
+#include <html.hpp>
+#include <mcubase.hpp>
 #include <ctml.hpp>
 #include <stdio.h>
 #include <string.h>
@@ -39,5 +40,10 @@ html::error html::open(const char *const path)
         return html::WRITE_ERR;
     }
 
+    return html::OK;
+}
+
+html::error html::add(const mcubase &reg)
+{
     return html::OK;
 }
