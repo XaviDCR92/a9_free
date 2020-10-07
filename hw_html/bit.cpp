@@ -2,15 +2,26 @@
 #include <iostream>
 
 bit::bit(const std::string &name, const std::string &access,
-    const std::string &pos) :
+    const std::string &pos, const std::string &reset,
+    const std::string &comment) :
     mcubase(name, access),
-    off(get(pos))
+    pos(pos),
+    reset(reset),
+    comment(comment)
 {
 }
 
-struct bit::off bit::get(const std::string &pos)
+const std::string &bit::getpos() const
 {
-    struct off off = {0};
-    std::cout << pos + "\n";
-    return off;
+    return pos;
+}
+
+const std::string &bit::getreset() const
+{
+    return reset;
+}
+
+const std::string &bit::getcomment() const
+{
+    return comment;
 }

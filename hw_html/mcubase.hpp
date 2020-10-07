@@ -7,17 +7,13 @@
 class mcubase
 {
 public:
-    enum access {UNDEF, C, R, S, W, RC, RS, RW, RSV, W1C, W1S};
     mcubase(const std::string &name, const std::string &access);
+    const std::string &getaccess() const;
+    const std::string &getname() const;
 
 protected:
-    mcubase() = default;
-    const std::string &name;
-    const access acc;
-    uint32_t rst;
-
-private:
-    static access get(const std::string &access);
+    ~mcubase() = default;
+    const std::string access, name;
 };
 
 #endif /* MCUBASE_HPP */
